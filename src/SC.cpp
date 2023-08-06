@@ -486,6 +486,27 @@ struct SCPass : public composition::support::ComposableAnalysis<SCPass> {
   unsigned int address_begin = 222222222;
   unsigned int expected_hash_begin = 444444444;
 
+//    这段代码定义了一个名为 `injectGuard` 的函数，该函数用于在给定基本块 (`BasicBlock`) 和指令 (`Instruction`) 的位置插入保护代码。函数的主要功能是创建一个新的函数调用指令，称为 "guard"，用于保护特定的函数 (`Checkee`)。
+//
+//    具体来说，`injectGuard` 函数的参数包括基本块 `BB`，指令 `I`，要保护的函数 `Checkee`，还有一些额外的参数。函数首先获取上下文 (context) 和模块 (module) 的相关信息，然后创建一个名为 "guardMe" 的函数，如果该函数已存在则直接获取。接着，根据传入的 `is_in_inputdep` 参数，确定 `args` 和 `undoValues` 这两个向量的内容。
+//
+//    `args` 向量存储着用于调用 "guardMe" 函数的参数，根据 `is_in_inputdep` 的值，可能只包含 `address`、`length` 和 `expectedHash` 三个参数，或者还包含一些额外的参数。`undoValues` 向量用于存储插入的保护代码，这些代码在后续需要撤销保护时会用到。
+//
+//    接下来，函数通过 `IRBuilder` 在指定位置插入代码，包括存储参数、加载参数、调用 "guardMe" 函数等操作，并将相关的指令和值添加到 `undoValues` 中。同时，函数还生成用于统计的 `patchInfo` 字符串。
+//
+//    最后，函数返回一个包含两个元素的 `std::pair`，其中第一个元素是 `undoValues` 向量，第二个元素是一个 lambda 函数 `patchFunction`。`patchFunction` 函数用于撤销保护时执行相应的操作，例如更新统计信息、移除标记以及给被保护的函数添加属性。
+//
+//    总体而言，`injectGuard` 函数是用于生成并插入保护代码的功能性函数，以实现对特定函数的保护和保护后的撤销。
+
+//        `BasicBlock` 是 LLVM 中的基本块，是 LLVM 中的基本组成单元之一。一个基本块是一个连续的指令序列，其中的指令按照控制流顺序执行，没有分支或跳转语句。基本块通常由一个入口指令（首指令）和一个终止指令（尾指令）组成。
+//
+//        在 LLVM 的中间表示 (Intermediate Representation, IR) 中，函数被表示为一个由基本块组成的控制流图 (Control Flow Graph, CFG)。每个基本块都有一个唯一的标识符，可以通过这个标识符来访问基本块。
+//
+//        基本块在 LLVM 中扮演了重要的角色，它们是构建程序的基本模块，用于表示不同的代码路径和执行顺序。在优化和分析过程中，基本块是重要的单位，许多优化算法都是基于对基本块的分析和转换。
+//
+//        在给定函数的控制流图中，每个基本块都是一个独立的代码段，由一组指令组成。基本块之间通过跳转指令（如条件分支或无条件分支）进行连接，形成函数的控制流程。
+//
+//        总结来说，`BasicBlock` 是 LLVM 中表示函数控制流图中基本代码块的数据结构，它包含一组按照控制流顺序执行的指令。
   std::pair<std::vector<llvm::Value *>, PatchFunction>
   injectGuard(BasicBlock *BB, Instruction *I, Function *Checkee,
               int &numberOfGuardInstructions, bool is_in_inputdep) {
@@ -494,10 +515,59 @@ struct SCPass : public composition::support::ComposableAnalysis<SCPass> {
     llvm::ArrayRef<llvm::Type *> params;
     params = {Type::getInt32Ty(Ctx), Type::getInt32Ty(Ctx),
               Type::getInt32Ty(Ctx)};
+
+//            这行代码用于创建一个 LLVM 函数类型对象 (`llvm::FunctionType`)。函数类型描述了函数的参数类型和返回类型。
+//
+//            函数签名如下：
+//            ```cpp
+//            static FunctionType *get(Type *Result, ArrayRef<Type *> Params, bool isVarArg);
+//            ```
+//
+//            参数解释：
+//            - `Result`: 表示函数的返回类型，这里使用 `llvm::Type::getVoidTy(Ctx)` 表示返回类型为 `void`，即函数没有返回值。
+//            - `Params`: 一个 `ArrayRef`，表示函数的参数类型。`params` 是一个类型为 `llvm::Type *` 的 `ArrayRef`，它包含了函数的参数类型。在这段代码中，`params` 可能包含多种类型，具体取决于代码上下文中的实际参数列表。
+//            - `isVarArg`: 表示函数是否是可变参数函数（即带有 `...` 的函数），这里设置为 `false`，表示不是可变参数函数。
+//
+//            所以，这行代码创建了一个函数类型对象 `function_type`，它表示一个没有返回值且参数类型由 `params` 指定的函数类型。在这里，函数类型是一个没有返回值和参数的函数类型，即类似于 C/C++ 中的 `void func()`。
+//
+//            LLVM 中的函数类型用于描述函数的签名，包括返回类型和参数类型，这在 LLVM IR 中的函数定义和调用中非常重要。
+
+ // 表示guardme的函数类型
     llvm::FunctionType *function_type =
         llvm::FunctionType::get(llvm::Type::getVoidTy(Ctx), params, false);
-    Constant *guardFunc = BB->getParent()->getParent()->getOrInsertFunction(
-        "guardMe", function_type);
+
+//`getOrInsertFunction` 是 LLVM 中的一个函数，在 `llvm/IR/Module.h` 头文件中声明，用于在模块中获取或插入一个函数。
+//
+//函数签名如下：
+//```cpp
+//FunctionCallee getOrInsertFunction(StringRef Name, FunctionType *T);
+//```
+//
+//参数解释：
+//- `Name`：表示要获取或插入的函数的名称，为一个字符串引用。
+//- `T`：表示要获取或插入的函数的函数类型（`llvm::FunctionType *`）。函数类型描述了函数的参数类型和返回类型，前面提到的 `llvm::FunctionType::get` 就是用于创建函数类型的。
+//
+//函数返回值：
+//- `FunctionCallee`：一个包装了函数指针或函数地址的类，用于表示函数的指针。这个类是一个通用的函数指针包装器，可以表示不同类型的函数指针。
+//
+//函数作用：
+//- 如果在模块中找到了与给定名称和类型匹配的函数，则返回一个 `FunctionCallee` 对象，该对象包含了已存在函数的指针。
+//- 如果模块中没有找到与给定名称和类型匹配的函数，则在模块中插入一个新的函数，并返回一个 `FunctionCallee` 对象，该对象包含了新函数的指针。
+//
+//`getOrInsertFunction` 在 LLVM IR 中的使用场景是在进行函数调用之前，先检查是否已经有匹配的函数定义，如果有则直接获取函数指针，如果没有则插入一个新的函数定义。这样可以确保在生成 LLVM IR 代码时，所有被调用的函数都能正确链接。
+
+//执行 `->getParent()->getParent()` 是为了从 BasicBlock (`BB`) 获取到所属的 Function，然后再从 Function 获取到所属的 Module。
+//
+//在 LLVM IR 中，一个 BasicBlock 属于一个 Function，而一个 Function 又属于一个 Module。所以在这段代码中，首先通过 `BB->getParent()` 获取到 BasicBlock 所属的 Function，然后再通过 `->getParent()` 获取到 Function 所属的 Module。
+//
+//具体来说，`BB->getParent()` 返回一个指向所属 Function 的指针，而 `->getParent()` 再次调用此指针所指向的 Function 对象的 `getParent()` 函数，返回一个指向所属 Module 的指针。最终，通过两次 `getParent()` 操作，可以得到 BasicBlock 所属的 Module。
+//
+//因此，`BB->getParent()->getParent()` 的目的是为了从 BasicBlock 获取到其所属的 Module，以便后续的操作可以在正确的 Module 中进行。
+
+
+//            注意，这个方法并不会生成函数的实际定义体（即函数的具体实现），它只是在模块中声明了一个函数。如果需要为函数生成实际的定义体，需要在其他地方进行函数的定义和实现。
+Constant *guardFunc = BB->getParent()->getParent()->getOrInsertFunction(
+        "guardMe", function_type);// todo 这个函数有谁调用
 
     IRBuilder<> builder(I);
     auto insertPoint = ++builder.GetInsertPoint();
