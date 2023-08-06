@@ -35,3 +35,4 @@ build/*
 
 src/.*.swp
 /cmake-build-debug/
+/.idea/
