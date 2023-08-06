@@ -34,3 +34,4 @@ build/*
 *.app
 
 src/.*.swp
+/cmake-build-debug/
